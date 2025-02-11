@@ -7,10 +7,12 @@
 package gocache
 
 import (
-	"goCache/lru"
+	// "goCache/lru"
+	"goCache/gocache/lru"
 	"sync"
 )
-// 封装一层lru中的cache 从而实现支持并发读写 并封装add和get方法 
+
+// 封装一层lru中的cache 从而实现支持并发读写 并封装add和get方法
 type  cache struct{
 	mu sync.Mutex
 	lru *lru.Cache
