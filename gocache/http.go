@@ -2,7 +2,7 @@
  * @Author: wangqian
  * @Date: 2025-02-11 15:53:10
  * @LastEditors: wangqian
- * @LastEditTime: 2025-02-11 16:30:19
+ * @LastEditTime: 2025-02-13 17:08:11
  */
 /*
 分布式缓存需要实现节点之间的通信,暂时使用基于HTTP来实现通信
@@ -13,22 +13,36 @@ package gocache
 
 import (
 	"fmt"
+	"goCache/gocache/consistenthash"
+	"io/ioutil"
+	"sync"
+
 	// "go/format"
 	"log"
 	"net/http"
+	"net/url"
 	"strings"
 )
 
 // 先创建一个结构体 承载节点之间HTTP通信的核心数据结构
 
 // 定义默认路径
-const defaultBasePath = "/gocache/"
+const (
+	defaultBasePath = "/gocache/"
+	defaultReolicas = 50
+)
 
+// 实现服务端
 type HTTPPool struct {
 	// self用来记录自己的地址，包括主机名/ip和端口
 	self string
 	// 节点通讯地址前缀
 	basepath string
+	mu       sync.Mutex
+	// hash算法 通过具体key来选择节点
+	peers *consistenthash.Map
+	// 映射远程节点对应的httpgetter，每个远程节点对应一个httpgetter
+	httpGetters map[string]*httpGetter
 }
 
 // 实现new函数
@@ -71,8 +85,41 @@ func (p *HTTPPool) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	// 标记为字节流 
+	// 标记为字节流
 	w.Header().Set("Content-Type", "application/octet-stream")
 	// 返回写入body
 	w.Write(view.ByteSlice())
 }
+
+// TODO:实现perpicker接口
+
+// 实现HTTP客户端 httpgetter
+type httpGetter struct {
+	baseURL string
+}
+
+// 传入节点要节点名称和key 通过fmt库来实现字符串的格式化
+func (h *httpGetter) Get(group string, key string) ([]byte, error) {
+	u := fmt.Sprintf(
+		"%v%v/%v",
+		h.baseURL,
+		url.QueryEscape(group),
+		url.QueryEscape(key),
+	)
+	res, err := http.Get(u)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("server returned :%v", res.Status)
+	}
+	bytes, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading response body:%v", err)
+	}
+	return bytes, nil
+}
+
+// 断言
+var _ PeerGetter = (*httpGetter)(nil)
