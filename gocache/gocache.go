@@ -2,7 +2,7 @@
  * @Author: wangqian
  * @Date: 2025-02-10 15:42:05
  * @LastEditors: wangqian
- * @LastEditTime: 2025-02-10 17:03:06
+ * @LastEditTime: 2025-02-14 17:03:18
  */
 package gocache
 
@@ -38,7 +38,9 @@ type Group struct{
 	name string
 	getter Getter
 	mainCache cache
+	peers PeerPicker
 }
+
 var (
 	mu sync.RWMutex
 	groups = make(map[string]*Group)
@@ -79,8 +81,33 @@ func (g *Group)Get(key string)(ByteView,error){
 	// 如果缓存没有命中，则调用local方法 
 	return g.load(key)
 }
+// 注册节点 
+func (g *Group)RegisterPeers(peers PeerPicker){
+	if g.peers != nil{
+		panic("RegisterPeerPicker called more than once")
+	}
+	g.peers = peers
+}
+// 选择调用节点 
 func (g *Group)load(key string)(value ByteView,err error){
+	if g.peers != nil{
+		if peer,ok := g.peers.PickPeer(key);ok{
+			if value,err = g.getFromPeer(peer,key);err == nil{
+				return value,nil
+			}
+			log.Println("[gocache] Failed to get from peer", err)
+		}
+	}
+	// 失败调用回调函数 
 	return g.getLocally(key)
+}
+
+func (g *Group)getFromPeer(peer PeerGetter,key string)(ByteView,error){
+	bytes,err := peer.Get(g.name,key)
+	if err != nil{
+		return ByteView{},err
+	}
+	return ByteView{b:bytes},nil
 }
 func (g *Group)getLocally(key string)(ByteView,error){
 	// 调用回调方法来获取到数据源
@@ -96,3 +123,5 @@ func (g *Group)getLocally(key string)(ByteView,error){
 func (g *Group)populateCache(key string,value ByteView){
 	g.mainCache.add(key,value)
 }
+
+

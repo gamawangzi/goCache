@@ -2,7 +2,7 @@
  * @Author: wangqian
  * @Date: 2025-02-11 15:53:10
  * @LastEditors: wangqian
- * @LastEditTime: 2025-02-13 17:08:11
+ * @LastEditTime: 2025-02-14 15:31:04
  */
 /*
 分布式缓存需要实现节点之间的通信,暂时使用基于HTTP来实现通信
@@ -91,7 +91,31 @@ func (p *HTTPPool) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Write(view.ByteSlice())
 }
 
-// TODO:实现perpicker接口
+// 实例化一致性哈希算法，并添加传入的节点 
+func (p *HTTPPool)Set(peers ...string){
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.peers = consistenthash.New(defaultReolicas,nil)
+	p.peers.Add(peers...)
+	p.httpGetters = make(map[string]*httpGetter,len(peers))
+	// 并为每一个节点创建了一个HTTP客户端httpGetter
+	for _,peer := range peers{
+		p.httpGetters[peer] = &httpGetter{
+			baseURL: peer+p.basepath,
+		}
+	}
+}
+// 包装了一致性哈希算法中的get方法，并根据传入的key返回对应的http客户端 
+func(p *HTTPPool)PickPeer(key string)(PeerGetter,bool){
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if peer := p.peers.Get(key);peer != ""&& peer != p.self{
+		p.Log("Pick peer %s",peer)
+		return p.httpGetters[peer],true
+	}
+	return nil,false
+}
+var _ PeerPicker = (*HTTPPool)(nil)
 
 // 实现HTTP客户端 httpgetter
 type httpGetter struct {
