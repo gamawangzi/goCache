@@ -2,7 +2,7 @@
  * @Author: wangqian
  * @Date: 2025-02-11 16:19:30
  * @LastEditors: wangqian
- * @LastEditTime: 2025-02-14 16:53:12
+ * @LastEditTime: 2025-02-15 15:34:51
  */
 package main
 
@@ -70,7 +70,7 @@ func main() {
 		8002: "http://localhost:8002",
 		8003: "http://localhost:8003",
 	}
-
+	// math.Abs()
 	var addrs []string
 	for _, v := range addrMap {
 		addrs = append(addrs, v)

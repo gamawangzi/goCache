@@ -2,12 +2,13 @@
  * @Author: wangqian
  * @Date: 2025-02-10 15:42:05
  * @LastEditors: wangqian
- * @LastEditTime: 2025-02-14 17:03:18
+ * @LastEditTime: 2025-02-15 16:11:19
  */
 package gocache
 
 import (
 	"fmt"
+	"goCache/gocache/singleflight"
 	"log"
 	"sync"
 )
@@ -39,6 +40,9 @@ type Group struct{
 	getter Getter
 	mainCache cache
 	peers PeerPicker
+
+	// 防止缓存击穿 
+	loader *singleflight.Group
 }
 
 var (
@@ -56,6 +60,7 @@ func NewGroup(name string,cacheBytes int64,getter Getter)*Group{
 		name: name,
 		getter: getter,
 		mainCache: cache{cacheBytes: cacheBytes},
+		loader: &singleflight.Group{},
 	}
 	groups[name] = g
 	return g
@@ -90,16 +95,32 @@ func (g *Group)RegisterPeers(peers PeerPicker){
 }
 // 选择调用节点 
 func (g *Group)load(key string)(value ByteView,err error){
-	if g.peers != nil{
-		if peer,ok := g.peers.PickPeer(key);ok{
-			if value,err = g.getFromPeer(peer,key);err == nil{
-				return value,nil
+	// if g.peers != nil{
+	// 	if peer,ok := g.peers.PickPeer(key);ok{
+	// 		if value,err = g.getFromPeer(peer,key);err == nil{
+	// 			return value,nil
+	// 		}
+	// 		log.Println("[gocache] Failed to get from peer", err)
+	// 	}
+	// }
+	// // 失败调用回调函数 
+	// return g.getLocally(key)
+	// 防止缓存击穿 使用do函数 
+	viewi,err := g.loader.Do(key,func() (interface{}, error) {
+		if g.peers != nil{
+			if peer,ok := g.peers.PickPeer(key);ok{
+				if value,err = g.getFromPeer(peer,key);err == nil{
+					return value,nil
+				}
+				log.Println("[gocache] Failed to get from peer", err)
 			}
-			log.Println("[gocache] Failed to get from peer", err)
 		}
+		return g.getLocally(key)
+	})
+	if err == nil{
+		return viewi.(ByteView),nil
 	}
-	// 失败调用回调函数 
-	return g.getLocally(key)
+	return 
 }
 
 func (g *Group)getFromPeer(peer PeerGetter,key string)(ByteView,error){
