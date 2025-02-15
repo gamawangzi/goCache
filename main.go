@@ -70,7 +70,6 @@ func main() {
 		8002: "http://localhost:8002",
 		8003: "http://localhost:8003",
 	}
-	// math.Abs()
 	var addrs []string
 	for _, v := range addrMap {
 		addrs = append(addrs, v)
