@@ -2,7 +2,7 @@
  * @Author: wangqian
  * @Date: 2025-02-11 15:53:10
  * @LastEditors: wangqian
- * @LastEditTime: 2025-02-14 19:36:14
+ * @LastEditTime: 2025-02-16 16:15:40
  */
 /*
 分布式缓存需要实现节点之间的通信,暂时使用基于HTTP来实现通信
@@ -16,7 +16,8 @@ import (
 	"goCache/gocache/consistenthash"
 	"io/ioutil"
 	"sync"
-
+	pb "goCache/gocache/gocachepb/gocachepb"
+	"github.com/golang/protobuf/proto"
 	// "go/format"
 	"log"
 	"net/http"
@@ -81,14 +82,21 @@ func (p *HTTPPool) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	view, err := group.Get(key)
+	body, err := proto.Marshal(&pb.Response{Value: view.ByteSlice()})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	// 标记为字节流
 	w.Header().Set("Content-Type", "application/octet-stream")
-	// 返回写入body
-	w.Write(view.ByteSlice())
+	w.Write(body)
+	// if err != nil {
+	// 	http.Error(w, err.Error(), http.StatusInternalServerError)
+	// 	return
+	// }
+	// // 标记为字节流
+	// w.Header().Set("Content-Type", "application/octet-stream")
+	// // 返回写入body
+	// w.Write(view.ByteSlice())
 }
 
 // 实例化一致性哈希算法，并添加传入的节点
@@ -125,26 +133,29 @@ type httpGetter struct {
 }
 
 // 传入节点要节点名称和key 通过fmt库来实现字符串的格式化
-func (h *httpGetter) Get(group string, key string) ([]byte, error) {
+func (h *httpGetter) Get(in *pb.Request, out *pb.Response)  error {
 	u := fmt.Sprintf(
 		"%v%v/%v",
 		h.baseURL,
-		url.QueryEscape(group),
-		url.QueryEscape(key),
+		url.QueryEscape(in.GetGroup()),
+		url.QueryEscape(in.GetKey()),
 	)
-	res, err := http.Get(u)
+    res, err := http.Get(u)
 	if err != nil {
-		return nil, err
+		return nil
 	}
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("server returned :%v", res.Status)
+		return nil
 	}
 	bytes, err := ioutil.ReadAll(res.Body)
-	if err != nil {
-		return nil, fmt.Errorf("reading response body:%v", err)
+	// if err != nil {
+	// 	return nil, fmt.Errorf("reading response body:%v", err)
+	// }
+	if err = proto.Unmarshal(bytes, out); err != nil {
+		return fmt.Errorf("decoding response body: %v", err)
 	}
-	return bytes, nil
+	return  nil
 }
 
 // 断言
