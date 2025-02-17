@@ -2,14 +2,14 @@
  * @Author: wangqian
  * @Date: 2025-02-15 15:43:32
  * @LastEditors: wangqian
- * @LastEditTime: 2025-02-15 17:06:37
+ * @LastEditTime: 2025-02-16 16:40:04
  */
 package singleflight
 
 import "sync"
 // call代表正在进行中或者已经结束的请求，使用sync.WaitGroup锁避免重入 
 type call struct{
-	wg sync.WaitGroup
+	wg sync.WaitGroup //避免重入
 	val interface{}
 	err error
 }
@@ -27,7 +27,7 @@ func (g *Group)Do(key string,fn func()(interface{},error)) (interface{},error){
 	}
 	if c,ok := g.m[key];ok{
 		g.mu.Unlock()
-		c.wg.Wait() //如果有请求正在进行中，则等待 
+		c.wg.Wait() //如果有请求正在进行中，则等待协程结束 
 		return c.val,c.err // 请求结束，返回结果 
 	}
 	c := new(call)
