@@ -2,7 +2,7 @@
  * @Author: wangqian
  * @Date: 2025-02-10 15:42:05
  * @LastEditors: wangqian
- * @LastEditTime: 2025-02-15 16:11:19
+ * @LastEditTime: 2025-02-18 17:15:27
  */
 package gocache
 
@@ -11,7 +11,8 @@ import (
 	"goCache/gocache/singleflight"
 	"log"
 	"sync"
-	 pb "goCache/gocache/gocachepb/gocachepb"
+	//  pb "goCache/gocache/gocachepb/gocachepb"
+	pb "goCache/gocache/gocachepb"
 )
 
 /*
@@ -41,7 +42,7 @@ type Group struct{
 	getter Getter
 	mainCache cache
 	peers PeerPicker
-
+	
 	// 防止缓存击穿 
 	loader *singleflight.Group
 }
@@ -134,12 +135,12 @@ func (g *Group)getFromPeer(peer PeerGetter,key string)(ByteView,error){
 		Group: g.name,
 		Key:   key,
 	}
-	res := &pb.Response{}
-	err := peer.Get(req, res)
+	// res := &pb.Response{}
+	value,err := peer.Get(req.Group, req.Key)
 	if err != nil {
 		return ByteView{}, err
 	}
-	return ByteView{b: res.Value}, nil
+	return ByteView{b: value}, nil
 }
 func (g *Group)getLocally(key string)(ByteView,error){
 	// 调用回调方法来获取到数据源

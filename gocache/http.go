@@ -2,7 +2,7 @@
  * @Author: wangqian
  * @Date: 2025-02-11 15:53:10
  * @LastEditors: wangqian
- * @LastEditTime: 2025-02-16 16:15:40
+ * @LastEditTime: 2025-02-18 16:28:26
  */
 /*
 分布式缓存需要实现节点之间的通信,暂时使用基于HTTP来实现通信
@@ -16,7 +16,7 @@ import (
 	"goCache/gocache/consistenthash"
 	"io/ioutil"
 	"sync"
-	pb "goCache/gocache/gocachepb/gocachepb"
+	pb "goCache/gocache/gocachepb"
 	"github.com/golang/protobuf/proto"
 	// "go/format"
 	"log"
