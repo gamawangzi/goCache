@@ -22,10 +22,6 @@ func ceateTestServer() (*Group, *server) {
 			}
 			return nil, fmt.Errorf("%s not exist", key)
 		}))
-
-	// r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	// // 随机一个端口 避免冲突
-	// port := 50000 + r.Intn(100)
 	addr := fmt.Sprintf("http://localhost:9999")
 
 	svr := NewServer(addr)

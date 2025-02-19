@@ -2,7 +2,7 @@
  * @Author: wangqian
  * @Date: 2025-02-17 14:51:26
  * @LastEditors: wangqian
- * @LastEditTime: 2025-02-18 16:03:36
+ * @LastEditTime: 2025-02-19 19:56:45
  */
 package gocache
 
@@ -16,6 +16,7 @@ import (
 	"sync"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/reflection"
 )
 
 // 使用grpc方式来实现节点之间的通信
@@ -34,7 +35,7 @@ type server struct {
 	// hash算法
 	peers *consistenthash.Map
 	// TODO:实现一个grpc的client 并用map进行映射
-	// clients map[string]*client
+	clients map[string]*client
 }
 
 // 实现Server的new函数
@@ -57,6 +58,8 @@ func (p *server) Start(apiAddr string) error {
 	}
 	grpcServer := grpc.NewServer()
 	gpb.RegisterGroupCacheServer(grpcServer, p)
+	    // 注册反射服务
+	reflection.Register(grpcServer)
 	p.mu.Unlock()
 	if err := grpcServer.Serve(lis); err != nil {
 		return fmt.Errorf("failed to serve :%v", err)
@@ -92,20 +95,21 @@ func (p *server) Set(peers ...string) {
 	p.peers = consistenthash.New(defaultgrpcReolicas, nil)
 	p.peers.Add(peers...)
 	// TODO:
-	// p.clients = make(map[string]*client)
-	// for _,peer := range peers{
-	// 	p.clients[peer] = NewClient(peer + p.basepath)
-	// }
+	p.clients = make(map[string]*client)
+	for _,peer := range peers{
+		p.clients[peer] = NewClient(peer + p.basepath)
+	}
 }
 
-// 实现http.go中对应的pickpeer方法
+// 实现http.go中对应的pickpeer方法 
+// TODO:解决hash映射到远程节点调用没有返回值问题
 func (p *server) PickPeer(key string) (PeerGetter, bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if peer := p.peers.Get(key); peer != "" && peer != p.self {
 		p.Log("Pick peer %s", peer)
 		// TODO:
-		// return p.clients[peer], true
+		return p.clients[peer], true
 	}
 	return nil, false
 }
