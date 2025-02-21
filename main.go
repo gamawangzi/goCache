@@ -93,7 +93,6 @@ import (
 	"os/signal"
 	"sync"
 	"syscall"
-	"time"
 )
 
 func main() {
@@ -112,37 +111,51 @@ func main() {
 			return nil, fmt.Errorf("%s not exist", key)
 		}))
 	// 创建服务实例
-	addr := fmt.Sprintf("http://localhost:8001")
+	addr := fmt.Sprintf("localhost:8003")
 	server := gocache.NewServer(addr)
-	addr2 := fmt.Sprintf("http://localhost:8002")
-	addr3 := fmt.Sprintf("http://localhost:8003")
+	addr2 := fmt.Sprintf("localhost:8002")
+	addr3 := fmt.Sprintf("localhost:8001")
 	server.Set(addr,addr2,addr3)
 	group.RegisterPeers(server)
 	// 启动服务
 	go func() {
-		addr := fmt.Sprintf("localhost:9999")
+		addr := fmt.Sprintf("localhost:8001")
 		err := server.Start(addr)
+		if err != nil {
+			log.Fatal(err)
+		}
+	}()
+	go func ()  {
+		addr2 := fmt.Sprintf("localhost:8002")
+		err := server.Start((addr2))
+		if err != nil {
+			log.Fatal(err)
+		}
+	}()
+	go func ()  {
+		addr3 := fmt.Sprintf("localhost:8003")
+		err := server.Start((addr3))
 		if err != nil {
 			log.Fatal(err)
 		}
 	}()
 	// 通过函数发送几个请求
 	
-	view, err := group.Get("Tom")
-	if err != nil {
-		fmt.Println(err.Error())
-		return
-	}
-	fmt.Println(view.String())
+	// view, err := group.Get("Tom")
+	// if err != nil {
+	// 	fmt.Println(err.Error())
+	// 	return
+	// }
+	// fmt.Println(view.String())
 
-	time.Sleep(time.Second*2)
+	// time.Sleep(time.Second*2)
 
-	view, err = group.Get("Tom")
-	if err != nil {
-		fmt.Println(err.Error())
-		return
-	}
-	fmt.Println(view.String())
+	// view, err = group.Get("Tom")
+	// if err != nil {
+	// 	fmt.Println(err.Error())
+	// 	return
+	// }
+	// fmt.Println(view.String())
 	stop := make(chan os.Signal, 1)
     signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 

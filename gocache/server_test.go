@@ -1,3 +1,9 @@
+/*
+ * @Author: wangqian
+ * @Date: 2025-02-18 15:54:35
+ * @LastEditors: wangqian
+ * @LastEditTime: 2025-02-21 16:39:23
+ */
 package gocache
 
 import (
@@ -7,7 +13,7 @@ import (
 	"testing"
 )
 
-func ceateTestServer() (*Group, *server) {
+func ceateTestServer() (*Group, *Server) {
 	mysql := map[string]string{
 		"Tom":  "630",
 		"Jack": "589",
@@ -22,7 +28,7 @@ func ceateTestServer() (*Group, *server) {
 			}
 			return nil, fmt.Errorf("%s not exist", key)
 		}))
-	addr := fmt.Sprintf("http://localhost:9999")
+	addr := fmt.Sprintf("localhost:9999")
 
 	svr := NewServer(addr)
 	svr.Set(addr)
@@ -33,8 +39,7 @@ func TestServer_GetKey(t *testing.T) {
 	g, server := ceateTestServer()
 	go func() {
 		// 启动服务
-		addr := fmt.Sprintf("localhost:9999")
-		err := server.Start(addr)
+		err := server.Start()
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -47,7 +52,7 @@ func TestServer_GetKey(t *testing.T) {
 	if !reflect.DeepEqual(view.String(), "589") {
 		t.Errorf("key exist error ")
 	}
-	log.Printf("Jack is -> %s",view.String())
+	log.Printf("Jack is -> %s", view.String())
 	// 测试不存在的key
 	_, err = g.Get("Unknown")
 	if err != nil {

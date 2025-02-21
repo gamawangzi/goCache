@@ -6,7 +6,7 @@
  */
 package gocache
 // import pb "goCache/gocache/gocachepb/gocachepb"
-// import pb "goCache/gocache/gocachepb"
+import pb "goCache/gocache/gocachepb"
 
 type PeerPicker interface {
 	// 根据传入的key选择响应的节点 getter
@@ -15,6 +15,6 @@ type PeerPicker interface {
 
 type PeerGetter interface {
 	// 通过get来从对应group中查找缓存值
-	Get(group string,key string)([]byte,error)
-	// Get(in *pb.Request, out *pb.Response) error
+	// Get(group string,key string)([]byte,error)
+	Get(in *pb.Request, out *pb.Response) error
 }

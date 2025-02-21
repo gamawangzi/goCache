@@ -3,30 +3,36 @@ package gocache
 import (
 	"context"
 	"fmt"
+	"goCache/gocache/etcdregistry"
 	pb "goCache/gocache/gocachepb"
 	"log"
 	"time"
-	"google.golang.org/grpc"
+
+	clientv3 "go.etcd.io/etcd/client/v3"
+	"google.golang.org/protobuf/proto"
+	// "google.golang.org/grpc"
 )
 
 //实现grpc客户端
-type client struct{
+type Client struct{
 	// 名称
 	name string 
 }
+
 // 从远程节点获取对应缓存值 
-func (c *client) Get(group string,key string)([]byte,error){
+func (c *Client) Get(in *pb.Request, out *pb.Response)(error){
 	// 先根据group和key获取到对应的访问路径 
-	addr := fmt.Sprintf(
-		"%v%v/%v",
-		c.name,
-		group,
-		key,
-	)
-	// 获取grpc连接，并设置链接参数为不加密以及阻塞等待
-	conn,err := grpc.Dial(addr,grpc.WithInsecure(),grpc.WithBlock())
+	
+	// 创建一个etcd客户端 
+	cli,err := clientv3.New(defaultEtcdConfig)
 	if err != nil{
-		log.Fatalf("connect error ! ")
+		log.Fatalf("connect etcd  error ! ")
+	}
+	defer cli.Close()
+	conn,err := etcdregistry.EtcdDial(cli,c.name)
+
+	if err != nil{
+		return err
 	}
 	defer conn.Close()
 	grpcClient := pb.NewGroupCacheClient(conn)
@@ -34,17 +40,17 @@ func (c *client) Get(group string,key string)([]byte,error){
 	// 为grpc远程调用设置超时时间 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	resp, err := grpcClient.Get(ctx, &pb.Request{
-		Group: group,
-		Key:   key,
-	})
+	resp, err := grpcClient.Get(ctx, in)
 	if err != nil{
-		return nil, fmt.Errorf("can not get %s/%s from peer %s", group, key, c.name)
+		return fmt.Errorf("can not get %s/%s from peer %s", in.Group,in.Key, c.name)
 	}
-	return resp.GetValue(),nil
+	if err = proto.Unmarshal(resp.GetValue(), out); err != nil {
+		return fmt.Errorf("decoding response body:%v", err)
+	}
+	return nil
 }
-func NewClient(service string)*client{
-	return &client{name:service}
+func NewClient(service string)*Client{
+	return &Client{name:service}
 }
 // 进行断言 
-var _ PeerGetter = (*client)(nil)
+var _ PeerGetter = (*Client)(nil)
