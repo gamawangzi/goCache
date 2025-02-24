@@ -2,7 +2,7 @@
  * @Author: wangqian
  * @Date: 2025-02-10 15:42:05
  * @LastEditors: wangqian
- * @LastEditTime: 2025-02-21 17:07:15
+ * @LastEditTime: 2025-02-24 16:56:29
  */
 package gocache
 
@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"goCache/gocache/singleflight"
 	"log"
+	"math"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -53,15 +54,18 @@ type Group struct {
 	peers PeerPicker
 	// 防止缓存击穿
 	loader *singleflight.Group
-	// key的统计信息 
+	// key的统计信息
 	keys map[string]*KeyStats
 }
-// 通过封装原子类 来实现请求次数的统计 保证并发安全 
+
+// 通过封装原子类 来实现请求次数的统计 保证并发安全
 type AtomicInt int64
+
 // Add 方法用于对 AtomicInt 中的值进行原子自增
 func (i *AtomicInt) Add(n int64) { //原子自增
 	atomic.AddInt64((*int64)(i), n)
 }
+
 // Get 方法用于获取 AtomicInt 中的值。
 func (i *AtomicInt) Get() int64 {
 	return atomic.LoadInt64((*int64)(i))
@@ -75,14 +79,14 @@ type KeyStats struct { //Key的统计信息
 var (
 	// 最大QPS
 	maxQPS = 10
-	// 读写锁 
-	mu     sync.RWMutex
-	// 根据缓存组的名字来获取对应的缓存组 
+	// 读写锁
+	mu sync.RWMutex
+	// 根据缓存组的名字来获取对应的缓存组
 	groups = make(map[string]*Group)
 )
 
-// 实现new函数 
-// TODO: 实现传入不同参数达到不同的淘汰算法 LRU LFU 
+// 实现new函数
+// TODO: 实现传入不同参数达到不同的淘汰算法 LRU LFU
 func NewGroup(name string, cacheBytes int64, getter Getter) *Group {
 	if getter == nil {
 		panic("nil Getter")
@@ -94,7 +98,8 @@ func NewGroup(name string, cacheBytes int64, getter Getter) *Group {
 		getter:    getter,
 		mainCache: cache{cacheBytes: cacheBytes},
 		loader:    &singleflight.Group{},
-		keys: map[string]*KeyStats{},
+		keys:      map[string]*KeyStats{},
+		hotCache: cache{cacheBytes: cacheBytes},
 	}
 	groups[name] = g
 	return g
@@ -115,9 +120,9 @@ func (g *Group) Get(key string) (ByteView, error) {
 		return ByteView{}, fmt.Errorf("key is required")
 	}
 	// 两张cache 先查看hotcache中有没有对应的缓存
-	if v,ok := g.hotCache.get(key);ok{
+	if v, ok := g.hotCache.get(key); ok {
 		log.Println("hotCache get")
-		return v,nil
+		return v, nil
 	}
 	if v, ok := g.mainCache.get(key); ok {
 		log.Println("maincache get")
@@ -175,11 +180,35 @@ func (g *Group) getFromPeer(peer PeerGetter, key string) (ByteView, error) {
 		Group: g.name,
 		Key:   key,
 	}
+	// log.Println("this is getFromPeer func ")
 	res := &pb.Response{}
 	// res := &pb.Response{}
-	 err := peer.Get(req, res)
+	log.Println("this is getFromPeer func ")
+	err := peer.Get(req, res)
+	
 	if err != nil {
+		log.Fatal("ERROR",err)
 		return ByteView{}, err
+	}
+	// 计算QPS
+	if stat, ok := g.keys[key]; ok {
+		stat.remoteCnt.Add(1)
+		interval := float64(time.Now().Unix()-stat.firstGetTime.Unix()) / 60
+		qps := stat.remoteCnt.Get() / int64(math.Max(1, math.Round(interval)))
+		if qps >= int64(maxQPS) {
+			// 存入hotcache中
+			g.populateHotCache(key, ByteView{b: res.Value})
+			//删除映射关系,节省内存
+			mu.Lock()
+			delete(g.keys, key)
+			mu.Unlock()
+		} else {
+			// 第一次
+			g.keys[key] = &KeyStats{
+				firstGetTime: time.Now(),
+				remoteCnt:    1,
+			}
+		}
 	}
 	return ByteView{b: res.Value}, nil
 }
@@ -196,4 +225,9 @@ func (g *Group) getLocally(key string) (ByteView, error) {
 }
 func (g *Group) populateCache(key string, value ByteView) {
 	g.mainCache.add(key, value)
+}
+
+// populateHotCache 将数据添加到hotCache中
+func (g *Group) populateHotCache(key string, value ByteView) {
+	g.hotCache.add(key, value)
 }

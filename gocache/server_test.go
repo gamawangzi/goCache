@@ -30,7 +30,7 @@ func ceateTestServer() (*Group, *Server) {
 		}))
 	addr := fmt.Sprintf("localhost:9999")
 
-	svr := NewServer(addr)
+	svr,_ := NewServer(addr)
 	svr.Set(addr)
 	g.RegisterPeers(svr)
 	return g, svr

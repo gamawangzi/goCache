@@ -2,7 +2,7 @@
  * @Author: wangqian
  * @Date: 2025-02-17 14:51:26
  * @LastEditors: wangqian
- * @LastEditTime: 2025-02-21 16:16:47
+ * @LastEditTime: 2025-02-24 19:11:05
  */
 package gocache
 
@@ -59,12 +59,12 @@ type Server struct {
 }
 
 // 实现Server的new函数
-func NewServer(self string) *Server {
+func NewServer(self string) (*Server, error) {
 	return &Server{
 		self:    self,
 		peers:   consistenthash.New(defaultgrpcReolicas, nil),
 		clients: map[string]*Client{},
-	}
+	},nil
 }
 func (p *Server) Log(format string, v ...interface{}) {
 	log.Printf("[GrpcServer %s] %s", p.self, fmt.Sprintf(format, v...))
@@ -82,39 +82,53 @@ func (p *Server) Start() error {
 	p.mu.Lock()
 	if p.status == true {
 		p.mu.Unlock()
-		return fmt.Errorf("the server already started ")
+		return fmt.Errorf("server already started")
 	}
+	// -----------------启动服务----------------------
+	// 1. 设置status为true 表示服务器已在运行
+	// 2. 初始化stop channel,这用于通知registry stop keep alive
+	// 3. 初始化tcp socket并开始监听
+	// 4. 注册rpc服务至grpc 这样grpc收到request可以分发给server处理
+	// 5. 将自己的服务名/Host地址注册至etcd 这样client可以通过etcd
+	//    获取服务Host地址 从而进行通信。这样的好处是client只需知道服务名
+	//    以及etcd的Host即可获取对应服务IP 无需写死至client代码中
+	// ----------------------------------------------
 	p.status = true
 	p.stopSignal = make(chan error)
+
 	port := strings.Split(p.self, ":")[1]
-	// 监听指定的tcp端口 用于接收客户端grpc的请求
-	lis, err := net.Listen("tcp", ":"+port)
+	lis, err := net.Listen("tcp", ":"+port) //监听指定的 TCP 端口，用于接受客户端的 gRPC 请求
 	if err != nil {
-		return fmt.Errorf("failed to listen : %v", err)
+		return fmt.Errorf("failed to listen: %v", err)
 	}
-	// 创建一个grpc服务器 并将当前server对象注册为grpc服务 
 	grpcServer := grpc.NewServer()
 	gpb.RegisterGroupCacheServer(grpcServer, p)
-	// 注册反射服务
-	// reflection.Register(grpcServer)
-	go func ()  {
-		// TODO:注册服务至etcd，并阻塞等待停止信号的到来 
-		err := etcdregistry.Register("gocache",p.self,p.stopSignal)
-		if err != nil{
+	//创建一个新的 gRPC 服务器 grpcServer，然后将当前的 Server 对象 s 注册为 gRPC 服务。
+	//这样，gRPC 服务器就能够处理来自客户端的请求。
+
+	go func() {
+		// 注册服务至 etcd。该操作会一直阻塞，直到停止信号被接收。
+		//当停止信号被接收后，关闭通知通道 s.stopSignal，关闭 TCP 监听端口，并输出日志表示服务已经停止。
+		err := etcdregistry.Register("gocache", p.self, p.stopSignal)
+		if err != nil {
 			log.Fatalf(err.Error())
 		}
+		// Close channel
 		close(p.stopSignal)
-		// 关闭tcp listen
+		// Close tcp listen
 		err = lis.Close()
-		if err != nil{
+		if err != nil {
 			log.Fatalf(err.Error())
 		}
-		log.Printf("close tcp ok ")
+		log.Printf("[%s] Revoke service and close tcp socket ok.", p.self)
 	}()
+
 	p.mu.Unlock()
-	// 启动grpc服务器，grpcServer.Serve(lis) 会阻塞，处理客户端的 gRPC 请求，直到服务器关闭或发生错误
-	if err := grpcServer.Serve(lis); p.status&&err != nil {
-		return fmt.Errorf("failed to serve :%v", err)
+
+	//启动 gRPC 服务器。grpcServer.Serve(lis) 会阻塞，处理客户端的 gRPC 请求，直到服务器关闭或发生错误。
+	//如果服务器状态为运行状态（s.status 为 true），并且发生了错误，则返回相应的错误。
+	if err := grpcServer.Serve(lis); p.status && err != nil {
+		return fmt.Errorf("failed to serve: %v", err)
 	}
 	return nil
 }
@@ -122,7 +136,7 @@ func (p *Server) Start() error {
 // 实现get接口 用于处理grpc客户端请求 
 func (p *Server) Get(ctx context.Context, in *gpb.Request) (*gpb.Response, error) {
 	// 和http一样 先获取到需要groupname和key
-	group, key := in.GetGroup(), in.GetKey()
+	group, key := in.Group, in.Key
 	// 定义返回值
 	resp := &gpb.Response{}
 	log.Printf("[gocache_svr %s] Recv RPC Request - (%s)/(%s)", p.self, group, key)
@@ -152,7 +166,8 @@ func (p *Server) Set(peers ...string) {
 	p.peers.Add(peers...)
 	// TODO:将客户端映射到map中
 	for _, peer := range peers {
-		p.clients[peer] = NewClient(peer)
+		service := fmt.Sprintf("gocache/%s", peer) 
+		p.clients[peer] = NewClient(service)
 	}
 }
 

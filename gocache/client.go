@@ -9,7 +9,7 @@ import (
 	"time"
 
 	clientv3 "go.etcd.io/etcd/client/v3"
-	"google.golang.org/protobuf/proto"
+		"google.golang.org/protobuf/proto"
 	// "google.golang.org/grpc"
 )
 
@@ -25,12 +25,15 @@ func (c *Client) Get(in *pb.Request, out *pb.Response)(error){
 	
 	// 创建一个etcd客户端 
 	cli,err := clientv3.New(defaultEtcdConfig)
+	// log.Println("this is client.go get func ")
 	if err != nil{
 		log.Fatalf("connect etcd  error ! ")
 	}
 	defer cli.Close()
+	// fmt.Println(cli)
+	fmt.Println("this is client get "+c.name)
 	conn,err := etcdregistry.EtcdDial(cli,c.name)
-
+	log.Println("this is client.go get func ")
 	if err != nil{
 		return err
 	}
@@ -41,12 +44,14 @@ func (c *Client) Get(in *pb.Request, out *pb.Response)(error){
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	resp, err := grpcClient.Get(ctx, in)
+	// log.Println("this is client.go get funcs ")
 	if err != nil{
 		return fmt.Errorf("can not get %s/%s from peer %s", in.Group,in.Key, c.name)
 	}
 	if err = proto.Unmarshal(resp.GetValue(), out); err != nil {
 		return fmt.Errorf("decoding response body:%v", err)
 	}
+	// log.Println("this is client.go get funcs ")
 	return nil
 }
 func NewClient(service string)*Client{

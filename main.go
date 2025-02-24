@@ -86,93 +86,80 @@
 package main
 
 import (
+	// "flag"
+	"flag"
 	"fmt"
 	"goCache/gocache"
 	"log"
-	"os"
-	"os/signal"
-	"sync"
-	"syscall"
+	"net/http"
 )
 
-func main() {
-	var mysql = map[string]string{
-		"Tom":  "630",
-		"Jack": "589",
-		"Sam":  "567",
-	}
-	// 新建cache实例
-	group := gocache.NewGroup("scores", 2<<10, gocache.GetterFunc(
+var mysql = map[string]string{
+	"Tom":  "630",
+	"Jack": "589",
+	"Sam":  "567",
+}
+// 创建缓存组 
+func createGroup() *gocache.Group{
+	return gocache.NewGroup("scores",2<<10,gocache.GetterFunc(
 		func(key string) ([]byte, error) {
-			log.Println("[Mysql] search key", key)
+			log.Println("[SlowDB] Search key", key)
 			if v, ok := mysql[key]; ok {
 				return []byte(v), nil
 			}
 			return nil, fmt.Errorf("%s not exist", key)
 		}))
-	// 创建服务实例
-	addr := fmt.Sprintf("localhost:8003")
-	server := gocache.NewServer(addr)
-	addr2 := fmt.Sprintf("localhost:8002")
-	addr3 := fmt.Sprintf("localhost:8001")
-	server.Set(addr,addr2,addr3)
-	group.RegisterPeers(server)
-	// 启动服务
-	go func() {
-		addr := fmt.Sprintf("localhost:8001")
-		err := server.Start(addr)
-		if err != nil {
-			log.Fatal(err)
-		}
-	}()
-	go func ()  {
-		addr2 := fmt.Sprintf("localhost:8002")
-		err := server.Start((addr2))
-		if err != nil {
-			log.Fatal(err)
-		}
-	}()
-	go func ()  {
-		addr3 := fmt.Sprintf("localhost:8003")
-		err := server.Start((addr3))
-		if err != nil {
-			log.Fatal(err)
-		}
-	}()
-	// 通过函数发送几个请求
-	
-	// view, err := group.Get("Tom")
-	// if err != nil {
-	// 	fmt.Println(err.Error())
-	// 	return
-	// }
-	// fmt.Println(view.String())
-
-	// time.Sleep(time.Second*2)
-
-	// view, err = group.Get("Tom")
-	// if err != nil {
-	// 	fmt.Println(err.Error())
-	// 	return
-	// }
-	// fmt.Println(view.String())
-	stop := make(chan os.Signal, 1)
-    signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
-
-    // 等待终止信号
-    fmt.Println("Server is running. Press Ctrl+C to stop.")
-    <-stop
-    fmt.Println("Stopping server...")
-
 }
-
-func GetTomScore(group *gocache.Group, wg *sync.WaitGroup) {
-	defer wg.Done()
-	log.Printf("get Tom...")
-	view, err := group.Get("Tom")
-	if err != nil {
-		fmt.Println(err.Error())
-		return
+// startApiServer 启动一个http服务器，用于与用户交互 通过/api?key=xxx的形式来获取缓存
+func startAPIServer(apiAddr string,cache *gocache.Group){
+	http.Handle("/api",http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		key := r.URL.Query().Get("key")
+		view,err := cache.Get(key)
+		if err != nil{
+			http.Error(w,err.Error(),http.StatusInternalServerError)
+			return 
+		}
+		w.Header().Set("Content-Type", "application/octet-stream") //二进制数据流媒体类型
+		w.Write(view.ByteSlice())
+	}))
+	log.Println("Gocache api is running at", apiAddr)
+	log.Fatal(http.ListenAndServe(apiAddr[7:], nil))
+}
+// 启动etcd 
+func startCacheServerGrpcEtcd(addr string,addrs []string,cache *gocache.Group){
+	peers,_:= gocache.NewServer(addr)
+	peers.Set(addrs...)
+	cache.RegisterPeers(peers)
+	log.Println("GOcache is running at ",addr)
+	err := peers.Start()
+	if err != nil{
+		peers.Stop()
 	}
-	fmt.Println(view.String())
+
 }
+func main() {
+	var port int
+	var api bool
+	flag.IntVar(&port, "port", 8001, "Gocache server port")
+	flag.BoolVar(&api, "api", false, "Start a api server?")
+	flag.Parse()
+	// port := 8001
+	// api := true
+	apiAddr := "http://localhost:9999"
+	addrMap := map[int]string{
+		8001: "127.0.0.1:8001",
+		8002: "127.0.0.1:8002",
+		8003: "127.0.0.1:8003",
+	} 
+	var addrs []string
+	for _, v := range addrMap {
+		addrs = append(addrs, v)
+	}
+	cache := createGroup()
+	if api {
+		go startAPIServer(apiAddr, cache)
+	}
+	startCacheServerGrpcEtcd(addrMap[port], addrs, cache) //grpc版本
+
+}
+
